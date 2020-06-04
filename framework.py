@@ -159,8 +159,8 @@ class Framework:
             outputs = outputs.view(-1, outputs.size()[-1])  # (bs*max_len, num_labels)
             predicted = torch.argmax(outputs, dim=-1) # (bs*max_len, )
             labels = labels.view(-1)  # (bs*max_len,)
-            predicted_list.append(predicted)
-            labels_list.append(labels)
+            predicted_list.append(predicted.cpu())
+            labels_list.append(labels.cpu())
         self.metrics(predicted_list, labels_list)
         
     def metrics(self, predicted_list, labels_list):
