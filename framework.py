@@ -141,6 +141,7 @@ class Framework:
 
     def test(self, test_dataset, model):
         test_dataloader = DataLoader(test_dataset, batch_size=self.args.dev_batch_size, shuffle=False)
+        model.to(self.args.device)
         model.eval()
         right_count = 0
         predicted_list = []
