@@ -8,8 +8,8 @@ import torch
 parser = argparse.ArgumentParser()
 # task setting
 parser.add_argument('--mode', type=str, default='train')
-parser.add_argument('--train_batch_size', type=int, default=8)
-parser.add_argument('--dev_batch_size', type=int, default=6)
+parser.add_argument('--train_batch_size', type=int, default=12)
+parser.add_argument('--dev_batch_size', type=int, default=10)
 parser.add_argument('--num_train_epochs', type=int, default=3)
 parser.add_argument('--evaluate_step', type=int, default=1000)
 parser.add_argument('--max_len', type=int, default=128)

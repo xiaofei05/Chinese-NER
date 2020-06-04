@@ -1,4 +1,4 @@
-from tqdm import tqdm, trange
+from tqdm import trange
 import torch
 import torch.nn as nn
 from transformers import get_linear_schedule_with_warmup, AdamW
@@ -80,9 +80,10 @@ class Framework:
             # epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=True)
             for step, batch in enumerate(train_dataloader):
                 loss = self.train_step(batch, model)
-                print('Train Epoch[{}] Step[{} / {}] - loss: {:.6f}  '.format(epoch, step, len(train_dataloader), loss))  # , accuracy, corrects
+                if step % 10 == 0:
+                    print('Train Epoch[{}] Step[{} / {}] - loss: {:.6f}  '.format(epoch, step, len(train_dataloader), loss))  # , accuracy, corrects
                 global_step += 1
-                if self.args.evaluate_step > 0 and global_step % self.args.evaluate_step == 0:
+                if (self.args.evaluate_step > 0 and global_step % self.args.evaluate_step == 0) or (epoch==int(self.args.num_train_epochs)-1 and step == len(train_dataloader)-1):
                     results = self.evaluate(dev_dataset, model)
                     print("best result: %.2f, current result: %.2f" % (best_results, results["main"]))
                     if best_results < results["main"]:
@@ -91,7 +92,7 @@ class Framework:
                         print("Saving model checkpoint to %s"%self.args.save_model)
                         if not os.path.exists(self.args.save_model):
                             os.makedirs(self.args.save_model)
-                                              
+
                         model_to_save = (
                             model.module if hasattr(model, "module") else model
                         )
@@ -120,7 +121,8 @@ class Framework:
             labels = labels.view(-1)
             loss = self.loss_fct(outputs, labels)
             total_loss += loss.item()
-            print('Dev Step[{} / {}] - loss: {:.6f}  '.format(step, len(dev_dataloader), loss.item()))
+            if step % 10 == 0:
+                print('Dev Step[{} / {}] - loss: {:.6f}  '.format(step, len(dev_dataloader), loss.item()))
             predicted = torch.argmax(outputs, dim=-1)
             right_count += ((labels!=-100)&(predicted.eq(labels))).cpu().sum().item()
             total_count += (labels!=-100).cpu().sum().item()
@@ -136,7 +138,7 @@ class Framework:
         print("Dev Loss: {:.6f},  acc: {:.4f}, acc/O: {:.4f}".format(results["loss"], results["acc"], results["main"]))
         return results
 
-        
+
     def test(self, test_dataset, model):
         test_dataloader = DataLoader(test_dataset, batch_size=self.args.dev_batch_size, shuffle=False)
         model.eval()
