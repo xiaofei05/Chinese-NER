@@ -1,0 +1,3 @@
+./save_model/*
+./output/*
+./__pycache__/*
