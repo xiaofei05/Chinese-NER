@@ -7,7 +7,7 @@ class BERTforNER(BertPreTrainedModel):
     def __init__(self, config):
         super(BERTforNER, self).__init__(config)
         self.config = config
-        self.bert = BertModel.from_pretrained("bert-base-uncased", config=config)
+        self.bert = BertModel.from_pretrained(self.config.name, config=config)
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.classifier = nn.Linear(self.config.hidden_size, self.config.num_labels)
 

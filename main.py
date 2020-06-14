@@ -34,7 +34,6 @@ parser.add_argument('--hidden_dim', type=int, default=200)
 parser.add_argument('--train_file', type=str, default='./data/train.txt')
 parser.add_argument('--dev_file', type=str, default='./data/dev.txt')
 parser.add_argument('--test_file', type=str, default='./data/test.txt')
-parser.add_argument('--vocab_file', type=str, default='./pretrained/vocab.txt')
 parser.add_argument('--save_model', type=str, default='./save_model/')
 parser.add_argument('--output_dir', type=str, default='./output/')
 
@@ -68,11 +67,16 @@ def main(args):
     args.num_labels = len(labels)
     
     if args.model == 'bert':
-        tokenizer = BertTokenizer(args.vocab_file)
-        config = BertConfig.from_pretrained("bert-base-uncased", num_labels=args.num_labels, hidden_dropout_prob=args.hidden_dropout_prob)
+        # use 'bert-base-chinese' model
+        pretrained_model_name = 'bert-base-chinese'
+        tokenizer = BertTokenizer.from_pretrained(pretrained_model_name)
+        config = BertConfig.from_pretrained(pretrained_model_name, num_labels=args.num_labels, hidden_dropout_prob=args.hidden_dropout_prob)
+        config.name = pretrained_model_name
+
         add_CLS = True
         model = BERTforNER_CRF(config, use_crf=args.crf)
     else:
+        
         add_CLS = False
         tokenizer = Tokenizer(args.train_file)
         model = BiLSTM_CRF(len(tokenizer), args.embedding_dim, args.hidden_dim, args.num_labels, args.hidden_dropout_prob, args.crf)

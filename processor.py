@@ -23,10 +23,11 @@ def read_file(filename):
     return X, y
 
 def convert_tokens_to_ids(tokenizer, tokens):
+    # tokens: [["中", "国", "的", "首", "都", "是", "北", "京"], [...], ...]
     input_ids = []
     for t in tokens:
-        tokenized_text = tokenizer.encode_plus(t, add_special_tokens=False)
-        input_ids.append(tokenized_text["input_ids"])
+        tokenized_text = tokenizer.encode(t, add_special_tokens=False, max_length=512)
+        input_ids.append(tokenized_text)
     return input_ids
 
 
@@ -55,7 +56,7 @@ def sequence_padding(tokenizer, labels, X, y, max_len=128, add_CLS=True):
 
     tensorX = torch.LongTensor(tensorX)
     tensory = torch.LongTensor(tensory)
-    tensorMask = (tensorX.ne(cls_id) & tensorX.ne(pad_id) ).byte()
+    tensorMask = (tensorX.ne(pad_id) ).byte()
     return tensorX, tensorMask, tensory
 
 
@@ -108,10 +109,3 @@ class NERDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.X[idx], self.mask[idx], self.y[idx]
-    
-# if __name__ == "__main__":
-#     vocab_file = "./pretrained/vocab.txt"
-#     labels = ['O', 'I-PER', 'B-PER', 'I-LOC', 'I-ORG', 'B-ORG', 'B-LOC', '<start>', '<end>']
-#     tokenizer = BertTokenizer(vocab_file)
-#     a = NERDataset("data/train.txt", tokenizer, labels, max_len=50)
-#     print(a[5])
