@@ -42,45 +42,45 @@ class BiLSTM_CRF(nn.Module):
 
     def __init__(self, vocab_size, embedding_dim, hidden_dim, num_labels, hidden_dropout_prob=0.2, use_crf=False):
         super(BiLSTM_CRF, self).__init__()
-        self.name = "bilstm"
+        self.num_labels = num_labels
         self.use_crf = use_crf
         self.bilstm = BiLSTM(vocab_size, embedding_dim, hidden_dim, num_labels, hidden_dropout_prob)
 
         if self.use_crf:
-            self.crf = CRF(num_labels, pad_tag=-100)
-        else:
-            self.loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+            self.crf = CRF(num_labels)
     
-    def save_pretrained(self, save_dir):
-        pass
-
-
-    def get_loss(self, input_ids, labels, attention_mask=None):
-        '''
-        input_ids:  (batch_size, max_seq_length)
-        labels: (batch_size, max_seq_length)
-        attention_mask:  (batch_size, max_seq_length)
-
-        return: (batch_size, max_seq_length, num_labels)
-        '''
-        # (batch_size, max_seq_length, num_labels)
-        emissions = self.bilstm(input_ids)
-
-        if self.use_crf:
-            return self.crf.get_loss(emissions, labels, attention_mask)
-
-        return self.loss_fct(emissions.view(-1, emissions.size()[-1]), labels.view(-1))
-        
-    def forward(self, input_ids, attention_mask=None):
+    def forward(self, input_ids, attention_mask=None, pred_mask=None, input_labels=None):
         '''
         input_ids:  (batch_size, max_seq_length)
         attention_mask:  (batch_size, max_seq_length)
+        pred_mask: (batch_size, max_seq_length)
+        input_labels: (batch_size, )
 
         return: (batch_size, max_seq_length)
         '''
         # (batch_size, max_seq_length, num_labels)
         emissions = self.bilstm(input_ids)
         if self.use_crf:
-            return self.crf(emissions, attention_mask)
-        # (batch_size, max_seq_length)
-        return torch.argmax(emissions, dim=-1)
+            preds = self.crf.decode(emissions, pred_mask)
+            preds = [seq + [-1]*(pred_mask.size(1)-len(seq)) for seq in preds]
+            preds = torch.tensor(preds).to(input_ids.device)
+        else:
+            preds = torch.argmax(emissions, dim=-1)
+        
+        output = (preds, )
+
+        if input_labels is not None:
+            if self.use_crf:
+                loss = -1*self.crf(emissions, input_labels, attention_mask)
+            else:
+                loss_fct = nn.CrossEntropyLoss()
+                if pred_mask is not None:
+                    pred_pos = pred_mask.view(-1) == 1
+                    logits = emissions.view(-1, self.num_labels)[pred_pos]
+                    input_labels = input_labels.view(-1)[pred_pos]
+                    loss = loss_fct(logits, input_labels)
+                else:
+                    loss = loss_fct(emissions.view(-1, self.num_labels), input_labels.view(-1))
+            output += (loss, )
+
+        return output #(preds, loss)

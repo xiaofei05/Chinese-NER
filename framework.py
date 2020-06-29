@@ -1,9 +1,10 @@
-from tqdm import trange
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 from transformers import get_linear_schedule_with_warmup, AdamW
 from torch.utils.data import DataLoader
 import os
+from seqeval.metrics import f1_score, classification_report
 import random
 import numpy as np
 
@@ -22,24 +23,24 @@ class Framework:
  
     def train_step(self, batch_data, model):
         model.train()
-        model.zero_grad()
         batch = tuple(t.to(self.args.device) for t in batch_data)
-
-        loss = model.get_loss(
-            input_ids=batch[0],
-            attention_mask=batch[1],
-            labels=batch[-1]
+        input_ids, attention_mask, pred_mask, labels = batch
+        predicted, loss = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            pred_mask=pred_mask,
+            input_labels=labels
         )
         loss.backward()
         
         torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
         self.optimizer.step()
         self.scheduler.step()  # Update learning rate schedule
+        model.zero_grad()
         return loss.item()
         
 
-
-    def train(self, train_dataset, dev_dataset, model):
+    def train(self, train_dataset, dev_dataset, model, labels):
         train_dataloader = DataLoader(train_dataset, batch_size=self.args.train_batch_size, shuffle=True)
 
         # get optimizer schedule and loss
@@ -63,25 +64,23 @@ class Framework:
 
         global_step = 0
         # Check if continuing training from a checkpoint
-        best_results = 0
+        best_result = 0
         early_stop = 0
 
         model.to(self.args.device)
-        for epoch in trange(0, int(self.args.num_train_epochs), desc="Epoch", disable=True):
-            # epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=True)
+        for epoch in range(0, int(self.args.num_train_epochs)):
             for step, batch in enumerate(train_dataloader):
                 loss = self.train_step(batch, model)
-
                 if step % 20 == 0:
                     print('Train Epoch[{}] Step[{} / {}] - loss: {:.6f}  '.format(epoch+1, step+1, len(train_dataloader), loss))  # , accuracy, corrects
                 global_step += 1
                 
                 if (self.args.evaluate_step > 0 and global_step % self.args.evaluate_step == 0) or (epoch==int(self.args.num_train_epochs)-1 and step == len(train_dataloader)-1):
                     early_stop += 1
-                    results = self.evaluate(dev_dataset, model)
-                    print("best result: %.2f, current result: %.2f" % (best_results, results["main"]))
-                    if best_results <= results["main"]:
-                        best_results = results["main"]
+                    result = self.evaluate(dev_dataset, model, labels)
+                    print("best f1: %.2f, current f1: %.2f" % (best_result, result))
+                    if best_result <= result:
+                        best_result = result
                         print("Saving model checkpoint to %s"%self.args.save_model)
                         torch.save(model.state_dict(), self.args.save_model)
                         early_stop = 0
@@ -90,98 +89,79 @@ class Framework:
                 if early_stop >= 5:
                     return
 
-    def evaluate(self, dev_dataset, model):
-        print()
+    def evaluate(self, dev_dataset, model, all_labels):
+        print("\n Evaluating ...")
         dev_dataloader = DataLoader(dev_dataset, batch_size=self.args.dev_batch_size, shuffle=False)
         model.eval()
-        total_loss = 0
-        right_count = 0
-        right_count_BI = 0
-        total_count = 0
-        total_count_BI = 0
-        for step, batch in enumerate(dev_dataloader):
+        total_loss = 0        
+        predicted_list = []
+        labels_list = []
+        for step, batch in enumerate(tqdm(dev_dataloader)):
             batch = tuple(t.to(self.args.device) for t in batch)
             with torch.no_grad():
-                labels = batch[-1]
-                loss = model.get_loss(
-                    input_ids=batch[0],
-                    attention_mask=batch[1],
-                    labels=labels
+                input_ids, attention_mask, pred_mask, labels = batch
+                predicted, loss = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    pred_mask=pred_mask,
+                    input_labels=labels
                 )
-                predicted = model(
-                    input_ids=batch[0],
-                    attention_mask=batch[1],
-                )
-                total_loss += loss
+                total_loss += loss.item()
+                
+                if self.args.crf:
+                    predicted = [seq[seq>=0].tolist() for seq in predicted]
+                else:
+                    predicted = [seq[mask==1].tolist() for seq, mask in zip(predicted, pred_mask)]
 
-                if step % 20 == 0:
-                    print('Dev Step[{} / {}] - loss: {:.6f}  '.format(step+1, len(dev_dataloader), loss))
+                groud_labels = [seq[mask==1].tolist() for seq, mask in zip(labels, pred_mask)]
 
-                right_count += ((labels!=-100)&(predicted.eq(labels))).cpu().sum().item()
-                total_count += (labels!=-100).cpu().sum().item()
-                right_count_BI += ((labels!=-100)&(labels!=0)&(predicted.eq(labels))).cpu().sum().item()
-                total_count_BI += ((labels!=-100)&(labels!=0)).cpu().sum().item()
+                for tl, pl in zip(groud_labels, predicted):
+                    labels_list.append([all_labels[l] for l in tl])
+                    predicted_list.append([all_labels[l] for l in pl])
+        
+        print("Dev Loss: {:.6f}".format(total_loss / len(dev_dataloader)))
+        class_report = classification_report(labels_list, predicted_list, digits=4)
+        print(class_report)      
 
-        results = {
-            "loss": total_loss / len(dev_dataloader),
-            "main": right_count_BI / total_count_BI,
-            "acc": right_count / total_count
-        }
-        print("Dev Loss: {:.6f},  acc: {:.4f}, acc/O: {:.4f}".format(results["loss"], results["acc"], results["main"]))
-        return results
+        return f1_score(labels_list, predicted_list)
 
 
     def test(self, test_dataset, model, all_labels):
+
         test_dataloader = DataLoader(test_dataset, batch_size=self.args.dev_batch_size, shuffle=False)
         model.to(self.args.device)
         model.eval()
-        right_count = 0
         predicted_list = []
         labels_list = []
-        for step, batch in enumerate(test_dataloader):
-            print('Test Step[{} / {}]'.format(step+1, len(test_dataloader)))
+        for step, batch in enumerate(tqdm(test_dataloader)):
             batch = tuple(t.to(self.args.device) for t in batch)
             with torch.no_grad():
-                labels = batch[-1]
+                input_ids, attention_mask, pred_mask, labels = batch
                 predicted = model(
-                    input_ids=batch[0],
-                    attention_mask=batch[1],
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    pred_mask=pred_mask
                 )
-                predicted_list.append(predicted.cpu())
-                labels_list.append(labels.cpu())
+                predicted = predicted[0]
 
-        self.metrics(predicted_list, labels_list, all_labels)
-        
-    def metrics(self, predicted_list, labels_list, all_labels):
-        # bs, max_seq_length
-        predicted = torch.cat(predicted_list, dim=0)
-        labels = torch.cat(labels_list, dim=0)
-        predicted, labels = predicted.view(-1), labels.view(-1)
-        right_count = 0
-        right_count_BI = 0
-        total_count = 0
-        total_count_BI = 0
+                if self.args.crf:
+                    predicted = [seq[seq>=0].tolist() for seq in predicted]
+                else:
+                    predicted = [seq[mask==1].tolist() for seq, mask in zip(predicted, pred_mask)]
 
-        right_count += ((labels!=-100)&(predicted.eq(labels))).sum().item()
-        total_count += (labels!=-100).sum().item()
-        right_count_BI += ((labels!=-100)&(labels!=0)&(predicted.eq(labels))).sum().item()
-        total_count_BI += ((labels!=-100)&(labels!=0)).sum().item()
-        print("Test acc: {:.4f}, acc/O: {:.4f}".format(right_count / total_count, right_count_BI / total_count_BI))
+                groud_labels = [seq[mask==1].tolist() for seq, mask in zip(labels, pred_mask)]
 
-        num_labels = max(labels) + 1
-        predicted = predicted.tolist()
-        labels = labels.tolist()
-        assert len(predicted) == len(labels)
-        metrics = [[0 for i in range(num_labels)] for j in range(num_labels)]
-
-        for i in range(len(labels)):
-            if labels[i] != -100:
-                metrics[labels[i]][predicted[i]] += 1
-        
-        # if not os.path.exists(self.args.output_dir):
-        #     os.makedirs(self.args.output_dir)
+                for tl, pl in zip(groud_labels, predicted):
+                    labels_list.append([all_labels[l] for l in tl])
+                    predicted_list.append([all_labels[l] for l in pl])
+                
         with open(self.args.output_dir, "w", encoding="utf-8") as f:
-            f.write("\t".join(["LABLE"] + all_labels) + "\n")
-            for i in range(num_labels):
-                f.write("\t".join([all_labels[i]] + list(map(lambda x: str(x), metrics[i]))) + "\n")
-        return metrics
+            for labels in predicted_list:
+                for l in labels:
+                    f.write(l+"\n")
+                f.write("\n")
+        
+        class_report = classification_report(labels_list, predicted_list, digits=4)
+        print(class_report)      
+        with open(self.args.output_dir+"_report", "w", encoding="utf-8") as f:
+            f.write(class_report)

@@ -1,10 +1,14 @@
 from framework import Framework, set_seed
-from processor import Tokenizer, NERDataset
+from data_loader import NERDataset
 from model import BERTforNER_CRF, BiLSTM_CRF
 from transformers import BertConfig, BertTokenizer
 import argparse
 import torch
+import json
 import os
+
+set_seed(2020)
+
 parser = argparse.ArgumentParser()
 
 # task setting
@@ -14,7 +18,7 @@ parser.add_argument('--crf', action='store_true')
 
 # train setting
 parser.add_argument('--evaluate_step', type=int, default=1000)
-parser.add_argument('--max_len', type=int, default=128)
+parser.add_argument('--max_len', type=int, default=256)
 
 parser.add_argument('--train_batch_size', type=int, default=12)
 parser.add_argument('--dev_batch_size', type=int, default=6)
@@ -34,6 +38,8 @@ parser.add_argument('--hidden_dim', type=int, default=200)
 parser.add_argument('--train_file', type=str, default='./data/train.txt')
 parser.add_argument('--dev_file', type=str, default='./data/dev.txt')
 parser.add_argument('--test_file', type=str, default='./data/test.txt')
+parser.add_argument('--word2id_file', type=str, default='./data/word2id.json')
+
 parser.add_argument('--save_model', type=str, default='./save_model/')
 parser.add_argument('--output_dir', type=str, default='./output/')
 
@@ -58,40 +64,60 @@ else:
     save_name = args.model
 
 args.save_model = os.path.join(args.save_model, save_name + ".pt")
-args.output_dir = os.path.join(args.output_dir, save_name + ".metrics")
+args.output_dir = os.path.join(args.output_dir, save_name + ".result")
 
 def main(args):
-    set_seed(2020)
-    labels = ['O', 'B_LOC', 'B_ORG', 'B_T', 'I_LOC', 'I_PER', 'B_PER', 'I_ORG', 'I_T']
+    labels = ['O', 'B-LOC', 'B-ORG', 'B-T', 'I-LOC', 'I-PER', 'B-PER', 'I-ORG', 'I-T']
     # labels = ['O', 'I-PER', 'B-PER', 'I-LOC', 'I-ORG', 'B-ORG', 'B-LOC']
     args.num_labels = len(labels)
     
+    tokenizer = None
+    word2id = None
     if args.model == 'bert':
+        is_BERT = True
         # use 'bert-base-chinese' model
         pretrained_model_name = 'bert-base-chinese'
         tokenizer = BertTokenizer.from_pretrained(pretrained_model_name)
         config = BertConfig.from_pretrained(pretrained_model_name, num_labels=args.num_labels, hidden_dropout_prob=args.hidden_dropout_prob)
         config.name = pretrained_model_name
-
-        add_CLS = True
-        model = BERTforNER_CRF(config, use_crf=args.crf)
+        model = BERTforNER_CRF.from_pretrained("F:\\bert-base-chinese/", config=config, use_crf=args.crf)
     else:
-        
-        add_CLS = False
-        tokenizer = Tokenizer(args.train_file)
-        model = BiLSTM_CRF(len(tokenizer), args.embedding_dim, args.hidden_dim, args.num_labels, args.hidden_dropout_prob, args.crf)
+        is_BERT = False
+        word2id = json.load(open(args.word2id_file, "r", encoding="utf8"))
+        model = BiLSTM_CRF(len(word2id), args.embedding_dim, args.hidden_dim, args.num_labels, args.hidden_dropout_prob, args.crf)
 
     framework = Framework(args)
 
     if args.mode == "train":
-        print("loading datasets...")
-        train_dataset = NERDataset(args.train_file, tokenizer, labels, args.max_len, add_CLS)
-        dev_dataset = NERDataset(args.dev_file, tokenizer, labels, args.max_len, add_CLS)
-        framework.train(train_dataset, dev_dataset, model)
-    
-    test_dataset = NERDataset(args.test_file, tokenizer, labels, args.max_len, add_CLS)
+        print("loading training dataset...")
+        train_dataset = NERDataset(
+            file_path=args.train_file, 
+            labels=labels, 
+            word2id=word2id, 
+            tokenizer=tokenizer, 
+            max_len=args.max_len, 
+            is_BERT=is_BERT)
 
-    print("\nloading model ...")
+        print("loading dev datasets...")
+        dev_dataset = NERDataset(
+            file_path=args.dev_file, 
+            labels=labels, 
+            word2id=word2id, 
+            tokenizer=tokenizer, 
+            max_len=args.max_len, 
+            is_BERT=is_BERT)
+        
+        framework.train(train_dataset, dev_dataset, model, labels)
+    
+    print("\Testing ...")
+    print("loading dev datasets...")
+    test_dataset = NERDataset(
+            file_path=args.test_file, 
+            labels=labels, 
+            word2id=word2id, 
+            tokenizer=tokenizer, 
+            max_len=args.max_len, 
+            is_BERT=is_BERT)
 
     model.load_state_dict(torch.load(args.save_model))
     framework.test(test_dataset, model, labels)
