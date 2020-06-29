@@ -79,8 +79,7 @@ def main(args):
         pretrained_model_name = 'bert-base-chinese'
         tokenizer = BertTokenizer.from_pretrained(pretrained_model_name)
         config = BertConfig.from_pretrained(pretrained_model_name, num_labels=args.num_labels, hidden_dropout_prob=args.hidden_dropout_prob)
-        config.name = pretrained_model_name
-        model = BERTforNER_CRF.from_pretrained("F:\\bert-base-chinese/", config=config, use_crf=args.crf)
+        model = BERTforNER_CRF.from_pretrained(pretrained_model_name, config=config, use_crf=args.crf)
     else:
         is_BERT = False
         word2id = json.load(open(args.word2id_file, "r", encoding="utf8"))
