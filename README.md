@@ -68,7 +68,7 @@ python main.py --model bert --crf
 python main.py --model bilstm \
         --learning_rate 1e-2 \
         --num_train_epochs 20 \
-        --train_batch_size 8 \
+        --train_batch_size 64 \
         --dev_batch_size 32
 
 # run bilstm+crf
