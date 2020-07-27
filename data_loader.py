@@ -13,8 +13,9 @@ def read_file(filename):
                 x0.append(data.split()[0])
                 y0.append(data.split()[1])
             else:
-                X.append(x0)
-                y.append(y0)
+                if len(x0)!=0:
+                    X.append(x0)
+                    y.append(y0)
                 x0, y0 = [], []
         if len(x0)!=0:
             X.append(x0)
