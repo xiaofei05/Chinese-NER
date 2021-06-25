@@ -3,6 +3,7 @@ Chinese Named Entity Recognition (中文命名实体识别).
 
 
 ## Update
+**Warning**: When the training loss drops but the evaluation metrics are 0, please check whether the suitable learning rate is selected for Bert and Bi-LSTM respectively.
 
 ### 2020.06.30 
 * Fixed a bug that failed to load the pre-trained model.
@@ -64,7 +65,7 @@ python main.py --model bert --crf
 
 ```
 # run bilstm
-# it's better to reset the parameters
+# set the learning rate to 1e-2
 python main.py --model bilstm \
         --learning_rate 1e-2 \
         --num_train_epochs 20 \
